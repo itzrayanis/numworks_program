@@ -27,11 +27,13 @@ def dialog(text="Are you sure?"):
             return 0
         time.sleep(0.05)
 
-def menu(options):
+def menu(title_menu="Menu", options=["1","2"]):
     selection = 0
     menu_y = [60, 100, 140] 
     while True:
         kandinsky.fill_rect(0, 0, 320, 222, (255,255,255))
+        kandinsky.fill_rect(0, 0, 150, 222, (200,200,200))
+        kandinsky.draw_string(title_menu, 15, 15, (0,0,0),(200,200,200))
         opt_num = 0
         for i,opt in enumerate(options):
             opt_num += 1
@@ -51,7 +53,7 @@ def menu(options):
             if keydown(KEY_OK):
                 time.sleep(ttc)
                 return selection
-            if keydown(KEY_BACKSPACE) or keydown(KEY_TOOLBOX):
+            if keydown(KEY_BACKSPACE):
                 time.sleep(ttc)
                 return None
             time.sleep(0.05)

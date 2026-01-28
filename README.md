@@ -12,7 +12,24 @@ Application de dessin avancé.
 - OK pour écrire
 - BACKSPACE pour effacer
 - SHIFT BACKSPACE pour quitter (Valider)
-- TOOLBOX pour accéder au menu de configuration de la taille du curseur, couleur et fond (Utiliser les flèches directionnels et OK pour valider)
+- TOOLBOX pour accéder au menu de configuration (Utiliser les flèches directionnels et OK pour valider)
+
+L'application propose une configuration de la taille du curseur, la couleur d'écriture ainsi que le fond, actuellement
+l'application met a disposition trois palette de chacune 36 couleurs. (Soit un total de 108 couleurs).
+
+
+<details>
+<summary>Modifier le script de l'application</summary>
+
+<br>
+Modifier le script de l'application peut être interrésant pour changer les limites par défauts. <br><br>
+Vous pouvez modifier les variables suivantes:
+<ul>
+<li> `taille_min` et `taille_max` dans la def `scale_menu` pour pouvoir modifier les limites de la taille du curseur (Il est recommandé de mettre un multiple de 2 en limite). </li>
+<li> `color_choices` au début du script pour ajouter vos propres couleurs dans une palette ou alors créer votre propre palette.</li>
+<li> `ttc` cette variable permet de régler le temps d'attente pour pouvoir appuyer sur un bouton après en avoir appuyé sur un, celle ci permet donc d'éviter de faire deux fois la même action quand on appuie sur un bouton. (Il est tous de même recommandé de ne pas changer cette variable ou alors au minimum 0.15).</li>
+</ul>
+</details>
 
 ## Fonction
 ### Dialog
