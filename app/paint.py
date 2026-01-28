@@ -7,7 +7,7 @@ import time
 selected_color = (0,0,0)
 font_color = (255,255,255)
 
-ttc = 0.15
+ttc = 0.2
 
 start = 1
 shift = False
@@ -265,7 +265,7 @@ while start == 1:
             color_menu(is_bg=True)
 
         cursor()
-        time.sleep(0.15)
+        time.sleep(ttc)
 
     if keydown(KEY_BACKSPACE):
         if shift == True:
