@@ -141,6 +141,10 @@ color_choices = [
 def clear_screen():
     kandinsky.fill_rect(0,0,320,222,font_color)
 
+def clear():
+    points.clear()
+    clear_screen()
+
 def draw():
     for p in points:
         kandinsky.fill_rect(p.get("x"),p.get("y"),p.get("w"),p.get("h"),p.get("color"))
@@ -404,16 +408,29 @@ while start == 1:
         cursor()
         time.sleep(ttc)
     if keydown(KEY_BACKSPACE):
-        found = None
-        for p in points:
-            if p.get("x") == cursor_x and p.get("y") == cursor_y and p.get("w") == w and p.get("h") == h:
-                found = p
-                break
-        if found:
-            points.remove(found)
-            draw()
-            cursor()
+        if shift == False:
+            found = None
+            for p in points:
+                if p.get("x") == cursor_x and p.get("y") == cursor_y and p.get("w") == w and p.get("h") == h:
+                    found = p
+                    break
+            if found:
+                points.remove(found)
+                draw()
+                cursor()
+                time.sleep(ttc)
+        elif shift == True:
+            confirm = dialog(text="Do you clear ?")
             time.sleep(ttc)
+            if confirm == 1:
+                clear()
+                cursor_x=0
+                cursor_y=0
+                cursor()
+            if confirm == 0:
+                clear_screen()    
+                cursor()
+            time.sleep(0.15)
 
     # Cursor
     if keydown(KEY_RIGHT):
@@ -456,15 +473,14 @@ while start == 1:
         cursor()
         time.sleep(ttc)
 
-    if keydown(KEY_BACKSPACE):
-        if shift == True:
-            confirm = dialog(text="Do you want quit?")
-            time.sleep(ttc)
-            if confirm == 1:
-                clear_screen()
-                kandinsky.draw_string("See you late \nClick on RETURN \nfor exit", 10, 160, (0, 0, 0))
-                start = 0
-            if confirm == 0:
-                clear_screen()    
-                cursor()
-            time.sleep(0.15)
+    if keydown(KEY_HOME):
+        confirm = dialog(text="Do you want quit?")
+        time.sleep(ttc)
+        if confirm == 1:
+            clear_screen()
+            kandinsky.draw_string("See you late \nClick on RETURN \nfor exit", 10, 160, (0, 0, 0))
+            start = 0
+        if confirm == 0:
+            clear_screen()    
+            cursor()
+        time.sleep(0.15)

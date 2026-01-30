@@ -10,8 +10,8 @@ Application de dessin avancé.
 #### Commandes:
 - Flèches directionnels pour bouger le curseur
 - OK pour écrire
-- BACKSPACE pour effacer
-- SHIFT BACKSPACE pour quitter (Valider)
+- BACKSPACE pour effacer (SHIFT pour clear)
+- MENU pour quitter (Valider)
 - TOOLBOX pour accéder au menu de configuration (Utiliser les flèches directionnels et OK pour valider)
 
 L'application propose une configuration de la taille du curseur, la couleur d'écriture ainsi que le fond, actuellement
