@@ -4,7 +4,7 @@ Ce repo git est là pour mettre à disposition plusieurs programmes tels que des
 Vous pouvez aussi retrouvez les application sur mon profil numworks:
 https://my.numworks.com/python/itzrayanis/
 
-## Applications:
+## Applications
 ### [Paint](https://my.numworks.com/python/itzrayanis/paint) 
 Application de dessin avancé.
 #### Commandes:
