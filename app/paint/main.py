@@ -1,7 +1,43 @@
 from ion import *
 import kandinsky 
 import time
-import paint_config
+
+try:
+    import paint_config
+except:
+    print("Please download \nthe config file")
+    time.sleep(1)
+    selected_color = (0,0,0) 
+    font_color = (255,255,255)
+    ttc = 0.2 
+    start = 1
+    shift = False
+    points = [
+    ] 
+    cursor_x=170 
+    cursor_y=110 
+    cursor_taille_min, cursor_taille_max = 10, 30 
+    w=20 
+    h=20 
+
+    color_choices = [
+        [
+            (255,255,255), 
+            (0,0,0), # Black
+            (128,128,128), # Gray
+            (255,0,0), # Red
+            (128,0,0), # Maroon
+            (255,255,0), # Yellow
+            (0,255,0), # Green
+            (0,255,255), # Cyan
+            (0,0,255), # Blue
+            (255,0,255), # Magenta
+            (128,0,128), # Purple
+            (255,128,0), # Orange
+            (128,64,0), # Brown
+            (255,215,0), # Gold
+        ]
+    ]
 
 # Def
 
@@ -340,8 +376,8 @@ while start == 1:
         time.sleep(ttc)
 
     if keydown(KEY_HOME):
-        confirm = dialog(text="Do you want quit?")
         time.sleep(ttc)
+        confirm = dialog(text="Do you want quit?")
         if confirm == 1:
             clear_screen()
             kandinsky.draw_string("See you late \nClick on RETURN \nfor exit", 10, 160, (0, 0, 0))
