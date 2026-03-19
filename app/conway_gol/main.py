@@ -1,128 +1,201 @@
-# GAME OF LIFE
-
+from ion import *
 import kandinsky
 import time
-import random
-import ion
 
-WIDTH = 320
-HEIGHT = 222
-CELL_SIZE = 10
-GRID_WIDTH = WIDTH // CELL_SIZE
-GRID_HEIGHT = HEIGHT // CELL_SIZE
+SCREEN_W  = 320
+SCREEN_H  = 222
+TOOLBAR_H = 18
+CANVAS_H  = SCREEN_H - TOOLBAR_H  
 
-def create_empty_grid():
-    return [[0 for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
+TAILLE_MIN = 4
+TAILLE_MAX = 40
+MAX_PTS    = 1000
+TTC        = 0.2
 
-grid = create_empty_grid()
+CELL_SIZE  = 12 
+COL_ALIVE  = (0, 0, 0)
+COL_DEAD   = (255, 255, 255)
+CURSOR_COL = (255, 220, 0)
 
-cursor_x = GRID_WIDTH // 2
-cursor_y = GRID_HEIGHT // 2
+state = {
+    "running"   : False,
+    "cursor_x"  : 8,
+    "cursor_y"  : 8,
+    "mode"      : "draw", 
+}
 
-auto_mode = False
+cells = [] 
 
-def clear_screen():
-    kandinsky.fill_rect(0, 0, WIDTH, HEIGHT, (255, 255, 255))
+def S(k): return state[k]
+def SET(k, v): state[k] = v
 
-def draw_cell(x, y, alive):
-    color = (0,0,0) if alive else (255,255,255)
-    kandinsky.fill_rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE, color)
+def draw_canvas():
+    kandinsky.fill_rect(0, 0, SCREEN_W, CANVAS_H, COL_DEAD)
+    for x, y in cells:
+        kandinsky.fill_rect(x, y, CELL_SIZE, CELL_SIZE, COL_ALIVE)
 
-def draw_cursor(x, y):
-    # Draw cursor as a red outline
-    kandinsky.fill_rect(x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, 1, (255,0,0)) # Top edge
-    kandinsky.fill_rect(x * CELL_SIZE, y * CELL_SIZE + CELL_SIZE - 1, CELL_SIZE, 1, (255,0,0)) # Bottom edge
-    kandinsky.fill_rect(x * CELL_SIZE, y * CELL_SIZE, 1, CELL_SIZE, (255,0,0)) # Left edge
-    kandinsky.fill_rect(x * CELL_SIZE + CELL_SIZE - 1, y * CELL_SIZE, 1, CELL_SIZE, (255,0,0)) # Right edge
+def draw_cursor():
+    if S("mode") == "run":
+        return
+    cx, cy = S("cursor_x"), S("cursor_y")
+    kandinsky.fill_rect(cx, cy, CELL_SIZE, 2, CURSOR_COL)
+    kandinsky.fill_rect(cx, cy, 2, CELL_SIZE, CURSOR_COL)
+    kandinsky.fill_rect(cx+CELL_SIZE-2, cy, 2, CELL_SIZE, CURSOR_COL)
+    kandinsky.fill_rect(cx, cy+CELL_SIZE-2, CELL_SIZE, 2, CURSOR_COL)
 
-def display_grid(with_cursor=True):
-    # Redraw the whole grid, cells, and optionally cursor
-    for y in range(GRID_HEIGHT):
-        for x in range(GRID_WIDTH):
-            draw_cell(x, y, grid[y][x])
-    if with_cursor:
-        draw_cursor(cursor_x, cursor_y)
+def draw_toolbar():
+    tb_y = CANVAS_H
+    mode_label = {"draw":"DESSIN", "erase":"EFFACE", "run":"RUN"}[S("mode")]
+    kandinsky.fill_rect(0, tb_y, SCREEN_W, TOOLBAR_H, (40, 40, 40))
+    kandinsky.draw_string("Mode:%s   Cells:%d   OK:step  Toolbox:Menu" % (
+        mode_label, len(cells)), 6, tb_y+2, (255,255,0), (40,40,40))
 
-def initialize_grid():
-    global grid
-    grid = create_empty_grid()
-    for y in range(GRID_HEIGHT):
-        for x in range(GRID_WIDTH):
-            grid[y][x] = random.randint(0, 1)
+def refresh():
+    draw_canvas()
+    draw_cursor()
+    draw_toolbar()
 
-def count_neighbors(x, y, ref_grid):
-    neighbors = 0
-    for dy in range(-1, 2):
-        for dx in range(-1, 2):
-            if dx == 0 and dy == 0:
-                continue
-            nx = (x + dx + GRID_WIDTH) % GRID_WIDTH
-            ny = (y + dy + GRID_HEIGHT) % GRID_HEIGHT
-            neighbors += ref_grid[ny][nx]
-    return neighbors
+def info(text):
+    kandinsky.fill_rect(0, CANVAS_H - 22, SCREEN_W, 22, (60, 60, 60))
+    kandinsky.draw_string(text, 6, CANVAS_H - 18, (255,255,255), (60,60,60))
+    kandinsky.draw_string("[OK]", 268, CANVAS_H - 18, (255,220,0), (60,60,60))
+    while True:
+        if keydown(KEY_OK):
+            time.sleep(TTC)
+            return
 
-def next_generation():
-    global grid
-    old_grid = [row[:] for row in grid]  # Deep copy
-    new_grid = create_empty_grid()
-    for y in range(GRID_HEIGHT):
-        for x in range(GRID_WIDTH):
-            n = count_neighbors(x, y, old_grid)
-            if old_grid[y][x]:
-                if n == 2 or n == 3:
-                    new_grid[y][x] = 1
-                else:
-                    new_grid[y][x] = 0
-            else:
-                if n == 3:
-                    new_grid[y][x] = 1
-                else:
-                    new_grid[y][x] = 0
-    grid = new_grid
+def cell_at_cursor():
+    cx, cy = S("cursor_x"), S("cursor_y")
+    for c in cells:
+        if c[0] == cx and c[1] == cy:
+            return c
+    return None
 
-# Always redraw the whole grid on any update to avoid display conflicts
-display_grid()
+def add_cell_at_cursor():
+    if len(cells) >= MAX_PTS:
+        info("Too many cells !")
+        return
+    if cell_at_cursor() is None:
+        cells.append((S("cursor_x"), S("cursor_y")))
+
+def remove_cell_at_cursor():
+    c = cell_at_cursor()
+    if c:
+        cells.remove(c)
+
+def toggle_mode():
+    m = S("mode")
+    SET("mode", "erase" if m == "draw" else "draw")
+
+def move_cursor(dx, dy):
+    x = max(0, min(S("cursor_x") + dx * CELL_SIZE, SCREEN_W - CELL_SIZE))
+    y = max(0, min(S("cursor_y") + dy * CELL_SIZE, CANVAS_H - CELL_SIZE))
+    SET("cursor_x", x)
+    SET("cursor_y", y)
+
+def clear_cells():
+    cells.clear()
+
+def neighbors(cell):
+    x, y = cell
+    nbs = []
+    for dx in (-CELL_SIZE, 0, CELL_SIZE):
+        for dy in (-CELL_SIZE, 0, CELL_SIZE):
+            if dx == 0 and dy == 0: continue
+            nx, ny = x+dx, y+dy
+            if 0 <= nx < SCREEN_W and 0 <= ny < CANVAS_H:
+                nbs.append((nx, ny))
+    return nbs
+
+def conway_step():
+    count = {}
+    for c in cells:
+        for n in neighbors(c):
+            count[n] = count.get(n, 0) + 1
+    new_cells = []
+    checked = set()
+    for pos, cnt in count.items():
+        if cnt == 3 or (cnt == 2 and pos in cells):
+            if pos not in checked and 0 <= pos[0] < SCREEN_W and 0 <= pos[1] < CANVAS_H:
+                new_cells.append(pos)
+                checked.add(pos)
+    cells.clear()
+    for c in new_cells:
+        if len(cells) < MAX_PTS:
+            cells.append(c)
+
+def menu():
+    options = ["Play/Stop", "Clean", "Quit"]
+    sel = 0
+    n = len(options)
+    menu_y = [50 + i * 36 for i in range(n)]
+    while True:
+        kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, (30,30,30))
+        kandinsky.fill_rect(0,0,165,SCREEN_H, (50,50,50))
+        kandinsky.draw_string("OPTIONS", 18, 14, (255,220,0), (50,50,50))
+        for i, opt in enumerate(options):
+            active = (i==sel)
+            bg = (0,120,220) if active else (50,50,50)
+            kandinsky.fill_rect(8, menu_y[i] - 4, 148, 26, bg)
+            kandinsky.draw_string(opt, 16, menu_y[i], (255,255,255), bg)
+        while True:
+            if keydown(KEY_DOWN): sel = (sel+1)%n; time.sleep(TTC); break
+            if keydown(KEY_UP): sel = (sel-1)%n; time.sleep(TTC); break
+            if keydown(KEY_OK):
+                time.sleep(TTC); return sel
+            if keydown(KEY_BACKSPACE) or keydown(KEY_TOOLBOX):
+                time.sleep(TTC); return None
+            time.sleep(0.05)
+
+refresh()
+time.sleep(0.1)
+
 while True:
-    prev_cursor_x, prev_cursor_y = cursor_x, cursor_y
-    updated = False
+    refresh()
+    if S("mode") == "run" or S("running") is True:
+        conway_step()
+        time.sleep(0.14)
+        if keydown(KEY_TOOLBOX):
+            SET("mode","draw")
+            S("running") and SET("running", False)
+            menu()
+            continue
+    else:
+        if keydown(KEY_RIGHT): move_cursor(1,0); refresh(); time.sleep(TTC)
+        if keydown(KEY_LEFT): move_cursor(-1,0); refresh(); time.sleep(TTC)
+        if keydown(KEY_UP): move_cursor(0,-1); refresh(); time.sleep(TTC)
+        if keydown(KEY_DOWN): move_cursor(0,1); refresh(); time.sleep(TTC)
 
-    if ion.keydown(ion.KEY_LEFT) and cursor_x > 0:
-        cursor_x -= 1
-        updated = True
-        time.sleep(0.07)
-    if ion.keydown(ion.KEY_RIGHT) and cursor_x < GRID_WIDTH-1:
-        cursor_x += 1
-        updated = True
-        time.sleep(0.07)
-    if ion.keydown(ion.KEY_UP) and cursor_y > 0:
-        cursor_y -= 1
-        updated = True
-        time.sleep(0.07)
-    if ion.keydown(ion.KEY_DOWN) and cursor_y < GRID_HEIGHT-1:
-        cursor_y += 1
-        updated = True
-        time.sleep(0.07)
+        if keydown(KEY_OK):
+            if S("mode")=="draw": add_cell_at_cursor()
+            elif S("mode")=="erase": remove_cell_at_cursor()
+            refresh()
+            time.sleep(TTC)
 
-    if ion.keydown(ion.KEY_OK):
-        grid[cursor_y][cursor_x] = 1 - grid[cursor_y][cursor_x]
-        updated = True
-        time.sleep(0.17)
-    if ion.keydown(ion.KEY_NINE):
-        next_generation()
-        updated = True
-        time.sleep(0.17)
-    if ion.keydown(ion.KEY_EIGHT):
-        auto_mode = not auto_mode
-        updated = True
-        time.sleep(0.17)
-    if auto_mode:
-        next_generation()
-        updated = True
-        time.sleep(0.12)
+        if keydown(KEY_SHIFT):
+            toggle_mode()
+            refresh()
+            time.sleep(TTC)
 
-    # Pour éviter les conflits d'affichage et les artefacts, on redessine tout à chaque update
-    if updated:
-        display_grid(with_cursor=True)
+        if keydown(KEY_TOOLBOX):
+            time.sleep(TTC)
+            op = menu()
+            if op == 0:
+                m = S("mode")
+                if m == "run":
+                    SET("mode","draw")
+                    SET("running",False)
+                else:
+                    SET("mode","run")
+                    SET("running",True)
+            elif op == 1:
+                if len(cells) > 0:
+                    clear_cells()
+                    info("Effacé!")
+            elif op == 2:
+                info("Au revoir!")
+                break
+            refresh()
+            time.sleep(TTC)
 
-    if not auto_mode:
-        time.sleep(0.01)
+    time.sleep(0.02)
