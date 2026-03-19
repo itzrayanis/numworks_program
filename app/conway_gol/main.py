@@ -47,7 +47,7 @@ def draw_toolbar():
     tb_y = CANVAS_H
     mode_label = {"draw":"DESSIN", "erase":"EFFACE", "run":"RUN"}[S("mode")]
     kandinsky.fill_rect(0, tb_y, SCREEN_W, TOOLBAR_H, (40, 40, 40))
-    kandinsky.draw_string("Mode:%s   Cells:%d   OK:step  Toolbox:Menu" % (
+    kandinsky.draw_string("Mode:%s   Cells:%d   OK:step  9:step  Toolbox:Menu" % (
         mode_label, len(cells)), 6, tb_y+2, (255,255,0), (40,40,40))
 
 def refresh():
@@ -169,6 +169,11 @@ while True:
         if keydown(KEY_OK):
             if S("mode")=="draw": add_cell_at_cursor()
             elif S("mode")=="erase": remove_cell_at_cursor()
+            refresh()
+            time.sleep(TTC)
+
+        if keydown(KEY_NINE):
+            conway_step()
             refresh()
             time.sleep(TTC)
 
