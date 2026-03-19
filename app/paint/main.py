@@ -1,388 +1,612 @@
 from ion import *
-import kandinsky 
+import kandinsky
 import time
 
+# Screen constants (fixed, never in paint_config)
+SCREEN_W  = 320
+SCREEN_H  = 222
+TOOLBAR_H = 18
+CANVAS_H  = SCREEN_H - TOOLBAR_H   # 204 usable px
+
+# Config: paint_config.py if present, otherwise default values
 try:
     import paint_config
+    TAILLE_MIN    = paint_config.TAILLE_MIN
+    TAILLE_MAX    = paint_config.TAILLE_MAX
+    MAX_PTS       = paint_config.MAX_PTS
+    TTC           = paint_config.TTC
+    color_choices = paint_config.color_choices
+    state         = paint_config.state
+    points        = list(paint_config.points)
+    if "line_start" not in state: state["line_start"] = None
+    if "running"    not in state: state["running"]    = True
 except:
-    print("Please download \nthe config file")
-    time.sleep(1)
-    selected_color = (0,0,0) 
-    font_color = (255,255,255)
-    ttc = 0.2 
-    start = 1
-    shift = False
-    points = [
-    ] 
-    cursor_x=170 
-    cursor_y=110 
-    cursor_taille_min, cursor_taille_max = 10, 30 
-    w=20 
-    h=20 
+    TAILLE_MIN = 4
+    TAILLE_MAX = 40
+    MAX_PTS    = 500
+    TTC        = 0.18
 
     color_choices = [
         [
-            (255,255,255), 
-            (0,0,0), # Black
-            (128,128,128), # Gray
-            (255,0,0), # Red
-            (128,0,0), # Maroon
-            (255,255,0), # Yellow
-            (0,255,0), # Green
-            (0,255,255), # Cyan
-            (0,0,255), # Blue
-            (255,0,255), # Magenta
-            (128,0,128), # Purple
-            (255,128,0), # Orange
-            (128,64,0), # Brown
-            (255,215,0), # Gold
+            (255, 255, 255),
+            (0,   0,   0  ),
+            (128, 128, 128),
+            (255, 0,   0  ),
+            (128, 0,   0  ),
+            (255, 255, 0  ),
+            (0,   255, 0  ),
+            (0,   255, 255),
+            (0,   0,   255),
+            (255, 0,   255),
+            (128, 0,   128),
+            (255, 128, 0  ),
+            (128, 64,  0  ),
+            (255, 215, 0  ),
         ]
     ]
 
-# Def
+    state = {
+        "bg_color"   : (255, 255, 255),
+        "draw_color" : (0,   0,   0  ),
+        "w"          : 20,
+        "h"          : 20,
+        "cursor_x"   : 160,
+        "cursor_y"   : 100,
+        "mode"       : "draw",
+        "running"    : True,
+        "line_start" : None,
+    }
 
-def clear_screen():
-    kandinsky.fill_rect(0,0,320,222,font_color)
+    points = []
 
-def clear():
-    points.clear()
-    clear_screen()
+# State shortcuts
+def S(k):      return state[k]
+def SET(k, v): state[k] = v
 
-def draw():
+# Visual constants for modes
+MODE_LABELS = {
+    "draw"   : "DRAW",
+    "erase"  : "ERASE",
+    "line"   : "LINE",
+    "fill"   : "FILL",
+    "pipette": "PICK",
+}
+MODE_COLORS = {
+    "draw"   : (0,   150, 255),
+    "erase"  : (220, 80,  80 ),
+    "line"   : (80,  200, 80 ),
+    "fill"   : (255, 165, 0  ),
+    "pipette": (180, 0,   255),
+}
+MODES_LIST = ["draw", "erase", "line", "fill", "pipette"]
+
+# Rendering functions
+def draw_canvas():
+    kandinsky.fill_rect(0, 0, SCREEN_W, CANVAS_H, S("bg_color"))
     for p in points:
-        kandinsky.fill_rect(p.get("x"),p.get("y"),p.get("w"),p.get("h"),p.get("color"))
+        kandinsky.fill_rect(p[0], p[1], p[2], p[3], p[4])
 
-def cursor():
-    clear_screen()
-    draw()
-    kandinsky.fill_rect(cursor_x,cursor_y,w,1,(150,150,150))
-    kandinsky.fill_rect(cursor_x,cursor_y,1,h,(150,150,150))
-    kandinsky.fill_rect(cursor_x,cursor_y+h,w,1,(150,150,150))
-    kandinsky.fill_rect(cursor_x+w,cursor_y,1,h,(150,150,150))
+def draw_toolbar():
+    tb_y  = CANVAS_H
+    mode  = S("mode")
+    col   = MODE_COLORS[mode]
+    label = MODE_LABELS[mode]
+    pts   = len(points)
 
-# Info box def
+    kandinsky.fill_rect(0, tb_y, SCREEN_W, TOOLBAR_H, (40, 40, 40))
 
+    # Active color square
+    kandinsky.fill_rect(3,  tb_y + 3,  12, 12, S("draw_color"))
+    kandinsky.fill_rect(3,  tb_y + 3,  12,  1, (180, 180, 180))
+    kandinsky.fill_rect(3,  tb_y + 3,   1, 12, (180, 180, 180))
+    kandinsky.fill_rect(14, tb_y + 3,   1, 12, (180, 180, 180))
+    kandinsky.fill_rect(3,  tb_y + 14, 12,  1, (180, 180, 180))
+
+    # Brush size
+    kandinsky.draw_string("S:%d" % S("w"), 19, tb_y + 4, (220, 220, 220), (40, 40, 40))
+
+    # Mode (LINE* if waiting for 2nd point)
+    if mode == "line" and S("line_start") is not None:
+        kandinsky.draw_string("LINE*", 88, tb_y + 4, (255, 220, 0), (40, 40, 40))
+    else:
+        kandinsky.draw_string(label, 88, tb_y + 4, col, (40, 40, 40))
+
+    # Points counter
+    cnt_col = (255, 80, 80) if pts >= MAX_PTS * 0.9 else (160, 160, 160)
+    kandinsky.draw_string("%d/%d" % (pts, MAX_PTS), 195, tb_y + 4, cnt_col, (40, 40, 40))
+
+def draw_cursor():
+    cx  = S("cursor_x")
+    cy  = S("cursor_y")
+    cw  = S("w")
+    ch  = S("h")
+    col = MODE_COLORS[S("mode")]
+
+    kandinsky.fill_rect(cx,      cy,      cw, 1,  col)
+    kandinsky.fill_rect(cx,      cy,      1,  ch, col)
+    kandinsky.fill_rect(cx,      cy + ch, cw, 1,  col)
+    kandinsky.fill_rect(cx + cw, cy,      1,  ch, col)
+
+    # Yellow cross on LINE start point
+    ls = S("line_start")
+    if ls is not None:
+        lx, ly = ls
+        kandinsky.fill_rect(lx,            ly + ch//2, cw, 1, (255, 220, 0))
+        kandinsky.fill_rect(lx + cw//2,    ly,          1, ch, (255, 220, 0))
+
+def refresh():
+    draw_canvas()
+    draw_cursor()
+    draw_toolbar()
+
+# Dialogs
 def info(text):
-    kandinsky.fill_rect(0, 180, 320, 40, (150, 150, 150))     
-    kandinsky.draw_string(text, 10, 190, (255, 255, 255), (150, 150, 150))
-    kandinsky.draw_string("Ok", 270, 190, (255, 255, 255), (150, 150, 150))
+    kandinsky.fill_rect(0, CANVAS_H - 22, SCREEN_W, 22, (60, 60, 60))
+    kandinsky.draw_string(text, 6, CANVAS_H - 18, (255, 255, 255), (60, 60, 60))
+    kandinsky.draw_string("[OK]", 268, CANVAS_H - 18, (255, 220, 0), (60, 60, 60))
     while True:
         if keydown(KEY_OK):
+            time.sleep(TTC)
             return
         time.sleep(0.05)
 
-def dialog(text="Are you sure?"):
-    kandinsky.fill_rect(0, 180, 320, 40, (150, 150, 150))     
-    kandinsky.draw_string(text, 10, 190, (255, 255, 255), (150, 150, 150))
-    kandinsky.draw_string("Oui", 240, 190, (255, 255, 255), (150, 150, 150))
-    kandinsky.draw_string("Non", 280, 190, (255, 255, 255), (150, 150, 150))
+def confirm_dialog(text="Sure?"):
+    kandinsky.fill_rect(0, CANVAS_H - 22, SCREEN_W, 22, (60, 60, 60))
+    kandinsky.draw_string(text, 6, CANVAS_H - 18, (255, 255, 255), (60, 60, 60))
+    kandinsky.draw_string("YES", 228, CANVAS_H - 18, (80,  220, 80), (60, 60, 60))
+    kandinsky.draw_string("NO",  276, CANVAS_H - 18, (220, 80,  80), (60, 60, 60))
     while True:
-        if keydown(KEY_LEFT):
-            time.sleep(ttc)
-            return 1
-        if keydown(KEY_RIGHT):
-            time.sleep(ttc)
-            return 0
+        if keydown(KEY_LEFT):  time.sleep(TTC); return True
+        if keydown(KEY_RIGHT): time.sleep(TTC); return False
         time.sleep(0.05)
 
-def menu():
-    options = ["Scale", "Color", "Background"]
-    selection = 0
-    menu_y = [60, 100, 140] 
+# Canvas actions
+def point_at_cursor():
+    cx, cy, cw, ch = S("cursor_x"), S("cursor_y"), S("w"), S("h")
+    for p in points:
+        if p[0] == cx and p[1] == cy and p[2] == cw and p[3] == ch:
+            return p
+    return None
+
+def action_draw():
+    if len(points) >= MAX_PTS:
+        info("Max %d pts!" % MAX_PTS)
+        return
+    if point_at_cursor() is None:
+        points.append((S("cursor_x"), S("cursor_y"), S("w"), S("h"), S("draw_color")))
+
+def action_erase():
+    p = point_at_cursor()
+    if p: points.remove(p)
+
+def action_pipette():
+    p = point_at_cursor()
+    if p:
+        SET("draw_color", p[4])
+        info("Color picked!")
+
+def action_clear():
+    if confirm_dialog("Clear canvas?"):
+        points.clear()
+
+def action_line():
+    cx, cy = S("cursor_x"), S("cursor_y")
+    start  = S("line_start")
+
+    if start is None:
+        SET("line_start", (cx, cy))
+        if point_at_cursor() is None and len(points) < MAX_PTS:
+            points.append((cx, cy, S("w"), S("h"), S("draw_color")))
+    else:
+        x0, y0 = start
+        x1, y1 = cx, cy
+        cw, ch = S("w"), S("h")
+        col    = S("draw_color")
+
+        steps_x = (x1 - x0) // cw
+        steps_y = (y1 - y0) // ch
+        n       = max(abs(steps_x), abs(steps_y))
+
+        if n == 0:
+            SET("line_start", None)
+            return
+
+        for i in range(n + 1):
+            px = x0 + round(steps_x * i / n) * cw
+            py = y0 + round(steps_y * i / n) * ch
+            if 0 <= px <= SCREEN_W - cw and 0 <= py <= CANVAS_H - ch - 1:
+                exists = any(p[0]==px and p[1]==py and p[2]==cw and p[3]==ch for p in points)
+                if not exists and len(points) < MAX_PTS:
+                    points.append((px, py, cw, ch, col))
+
+        SET("line_start", None)
+
+def action_fill():
+    cx, cy = S("cursor_x"), S("cursor_y")
+    cw, ch = S("w"), S("h")
+    col    = S("draw_color")
+
+    occupied = {}
+    for p in points:
+        if p[2] == cw and p[3] == ch:
+            occupied[(p[0], p[1])] = p[4]
+
+    target_color = occupied.get((cx, cy), None)
+    if target_color == col:
+        return
+
+    queue   = [(cx, cy)]
+    visited = {(cx, cy)}
+    to_add  = []
+
+    while queue:
+        x, y = queue.pop(0)
+        if occupied.get((x, y), None) != target_color:
+            continue
+        to_add.append((x, y))
+        for nx, ny in [(x+cw, y), (x-cw, y), (x, y+ch), (x, y-ch)]:
+            if (nx, ny) not in visited:
+                if 0 <= nx <= SCREEN_W - cw and 0 <= ny <= CANVAS_H - ch - 1:
+                    visited.add((nx, ny))
+                    queue.append((nx, ny))
+        if len(to_add) >= MAX_PTS:
+            break
+
+    fill_set = set(to_add)
+    points[:] = [p for p in points if (p[0], p[1]) not in fill_set or p[2] != cw or p[3] != ch]
+    for x, y in to_add:
+        if len(points) < MAX_PTS:
+            points.append((x, y, cw, ch, col))
+
+def cycle_mode(direction):
+    idx = MODES_LIST.index(S("mode"))
+    SET("mode", MODES_LIST[(idx + direction) % len(MODES_LIST)])
+    SET("line_start", None)
+
+# Cursor movement
+def move_cursor(dx, dy):
+    cx = max(0, min(S("cursor_x") + dx * S("w"), SCREEN_W - S("w")))
+    cy = max(0, min(S("cursor_y") + dy * S("h"), CANVAS_H - S("h") - 1))
+    SET("cursor_x", cx)
+    SET("cursor_y", cy)
+
+# Save / Load
+SAVE_SLOTS = ["paint_save1", "paint_save2", "paint_save3"]
+
+def save_slot(slot):
+    """Write points and state to paint_saveN.py"""
+    filename = SAVE_SLOTS[slot] + ".py"
+    try:
+        f = open(filename, "w")
+        f.write("points = [\n")
+        for p in points:
+            f.write("    (%d,%d,%d,%d,(%d,%d,%d)),\n" % (
+                p[0], p[1], p[2], p[3], p[4][0], p[4][1], p[4][2]))
+        f.write("]\n")
+        f.write("bg_color    = (%d,%d,%d)\n" % S("bg_color"))
+        f.write("draw_color  = (%d,%d,%d)\n" % S("draw_color"))
+        f.write("w           = %d\n" % S("w"))
+        f.write("h           = %d\n" % S("h"))
+        f.close()
+        info("Saved! (%d pts)" % len(points))
+    except:
+        info("Save failed!")
+
+def load_slot(slot):
+    """Load points from paint_saveN.py"""
+    modname = SAVE_SLOTS[slot]
+    try:
+        # Reload module if already imported
+        import sys
+        if modname in sys.modules:
+            del sys.modules[modname]
+        save = __import__(modname)
+        points.clear()
+        for p in save.points:
+            points.append(p)
+        SET("bg_color",   save.bg_color)
+        SET("draw_color", save.draw_color)
+        SET("w",          save.w)
+        SET("h",          save.h)
+        info("Loaded! (%d pts)" % len(points))
+    except:
+        info("No save found!")
+
+def slot_exists(slot):
+    modname = SAVE_SLOTS[slot]
+    try:
+        import sys
+        if modname in sys.modules:
+            return True
+        __import__(modname)
+        return True
+    except:
+        return False
+
+def menu_save_load():
+    """Menu with 3 slots; each slot shows Save / Load"""
+    sel  = 0
+    mode = 0   # 0 = select slot, 1 = action on slot
+
     while True:
-        draw()
-        kandinsky.fill_rect(0, 0, 320, 222, font_color)
-        kandinsky.fill_rect(0, 0, 150, 222, (200,200,200))
-        kandinsky.draw_string("Options", 15, 15, (0,0,0),(200,200,200))
-        for i,opt in enumerate(options):
-            color = (255,255,0) if i == selection else (0,0,0)
-            bg = (100,100,100) if i == selection else (200,200,200)
-            kandinsky.fill_rect(10, menu_y[i]-4, 120, 32, bg)
-            kandinsky.draw_string(opt, 15, menu_y[i], color, bg)
+        kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, (30, 30, 30))
+        kandinsky.fill_rect(0, 0, SCREEN_W, 28, (50, 50, 50))
+        kandinsky.draw_string("SAVE / LOAD", 88, 8, (255, 220, 0), (50, 50, 50))
+
+        slot_y = [50, 100, 150]
+        for i in range(3):
+            active  = (i == sel)
+            bg      = (0, 120, 220) if active else (50, 50, 50)
+            exists  = slot_exists(i)
+            label   = "Slot %d  [OK]" % (i + 1) if exists else "Slot %d  [empty]" % (i + 1)
+            kandinsky.fill_rect(10, slot_y[i] - 4, SCREEN_W - 20, 36, bg)
+            kandinsky.draw_string(label, 16, slot_y[i], (255, 255, 255), bg)
+            if exists:
+                kandinsky.draw_string("SAVE", 160, slot_y[i] + 16, (100, 255, 100), bg)
+                kandinsky.draw_string("LOAD", 220, slot_y[i] + 16, (100, 200, 255), bg)
+            else:
+                kandinsky.draw_string("SAVE", 160, slot_y[i] + 16, (100, 255, 100), bg)
+
+        kandinsky.draw_string("OK=Save  Alpha=Load  Back=exit",
+                              10, 195, (120, 120, 120), (30, 30, 30))
+
         while True:
             if keydown(KEY_DOWN):
-                selection = (selection + 1) % 3
-                time.sleep(ttc)
-                break
+                sel = (sel + 1) % 3; time.sleep(TTC); break
             if keydown(KEY_UP):
-                selection = (selection - 1) % 3
-                time.sleep(ttc)
-                break
+                sel = (sel - 1) % 3; time.sleep(TTC); break
             if keydown(KEY_OK):
-                time.sleep(ttc)
-                return selection
-            if keydown(KEY_BACKSPACE) or keydown(KEY_TOOLBOX):
-                time.sleep(ttc)
-                return None
+                save_slot(sel); time.sleep(TTC); return
+            if keydown(KEY_ALPHA):
+                load_slot(sel); time.sleep(TTC); return
+            if keydown(KEY_BACKSPACE):
+                time.sleep(TTC); return
             time.sleep(0.05)
 
-def scale_menu():
-    global w, h
-    curseur_y = 150
-    taille = w
-    done = False
+# Menus
+def menu_main():
+    options = ["Scale", "Color", "Background", "Mode", "Clear"]
+    sel     = 0
+    n       = len(options)
+    menu_y  = [40 + i * 30 for i in range(n)]
+
+    while True:
+        kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, (30, 30, 30))
+        kandinsky.fill_rect(0, 0, 165, SCREEN_H, (50, 50, 50))
+        kandinsky.draw_string("OPTIONS", 18, 14, (255, 220, 0), (50, 50, 50))
+
+        for i, opt in enumerate(options):
+            active = (i == sel)
+            # Clear in red, Save/Load in green, others in blue
+            if active:
+                if i == 5:   bg = (180, 50, 50)
+                elif i == 4: bg = (50, 130, 80)
+                else:        bg = (0, 120, 220)
+            else:
+                bg = (50, 50, 50)
+            kandinsky.fill_rect(8, menu_y[i] - 4, 148, 26, bg)
+            kandinsky.draw_string(opt, 16, menu_y[i], (255, 255, 255), bg)
+
+        while True:
+            if keydown(KEY_DOWN): sel = (sel+1) % n; time.sleep(TTC); break
+            if keydown(KEY_UP):   sel = (sel-1) % n; time.sleep(TTC); break
+            if keydown(KEY_OK):   time.sleep(TTC); return sel
+            if keydown(KEY_BACKSPACE) or keydown(KEY_TOOLBOX):
+                time.sleep(TTC); return None
+            time.sleep(0.05)
+
+def menu_scale():
+    taille = S("w")
+    done   = False
     while not done:
-        clear_screen()
-        draw()
-
-        kandinsky.fill_rect(0,0,320,60,(200,200,200))
-        kandinsky.draw_string("Scale :", 105, 10, (0,0,0),(200,200,200))
-
-        kandinsky.fill_rect(80, 35, 20, 20, (200,200,200))
-        kandinsky.draw_string("<", 85, 35, (0,0,0), (200,200,200))
-
-        kandinsky.fill_rect(120, 35, 80, 20, (200,200,200))
-        kandinsky.draw_string(str(taille), 155, 35, (0,0,0), (200,200,200))
-
-        kandinsky.fill_rect(220, 35, 20, 20, (200,200,200))
-        kandinsky.draw_string(">", 225, 35, (0,0,0), (200,200,200))
-
-        curseur_couleur = (150,150,150)
-        kandinsky.fill_rect(135, curseur_y, taille, taille, curseur_couleur)
-
+        kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, (30, 30, 30))
+        kandinsky.draw_string("SCALE", 118, 14, (255, 220, 0), (30, 30, 30))
+        kandinsky.fill_rect(60,  80, 26, 26, (60, 60, 60))
+        kandinsky.draw_string("<", 67, 84, (255, 255, 255), (60, 60, 60))
+        kandinsky.fill_rect(100, 80, 80, 26, (60, 60, 60))
+        kandinsky.draw_string(str(taille), 132, 84, (255, 220, 0), (60, 60, 60))
+        kandinsky.fill_rect(194, 80, 26, 26, (60, 60, 60))
+        kandinsky.draw_string(">", 200, 84, (255, 255, 255), (60, 60, 60))
+        px = (SCREEN_W - taille) // 2
+        kandinsky.fill_rect(px, 130, taille, taille, S("draw_color"))
+        kandinsky.draw_string("OK=confirm  BACK=cancel", 30, 195, (120, 120, 120), (30, 30, 30))
         while True:
             if keydown(KEY_LEFT):
-                if taille > taille_min:
-                    taille -= 2
-                time.sleep(ttc)
-                break
+                if taille > TAILLE_MIN: taille -= 1
+                time.sleep(TTC); break
             if keydown(KEY_RIGHT):
-                if taille < taille_max:
-                    taille += 2
-                time.sleep(ttc)
-                break
+                if taille < TAILLE_MAX: taille += 1
+                time.sleep(TTC); break
             if keydown(KEY_OK):
-                w = taille
-                h = taille
-                time.sleep(ttc)
-                done = True
-                break
+                SET("w", taille); SET("h", taille)
+                time.sleep(TTC); done = True; break
             if keydown(KEY_BACKSPACE):
-                time.sleep(ttc)
-                done = True
-                break
+                time.sleep(TTC); done = True; break
             time.sleep(0.05)
 
-def color_menu(is_bg=False):
-    global selected_color, font_color
+def menu_mode():
+    modes  = ["draw", "erase", "line", "fill", "pipette"]
+    labels = ["Draw    - draw",
+              "Erase   - erase",
+              "Line    - line",
+              "Fill    - fill",
+              "Pipette - color"]
+    sel    = modes.index(S("mode")) if S("mode") in modes else 0
+    n      = len(modes)
+    menu_y = [36 + i * 30 for i in range(n)]
 
-    n_palettes = len(color_choices)
-    palette_idx = 0  
-    idx = 0
+    while True:
+        kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, (30, 30, 30))
+        kandinsky.fill_rect(0, 0, SCREEN_W, 28, (50, 50, 50))
+        kandinsky.draw_string("MODE", 100, 8, (255, 220, 0), (50, 50, 50))
+        kandinsky.draw_string("4=prev  6=next", 170, 8, (130, 130, 130), (50, 50, 50))
 
-    while palette_idx < n_palettes and len(color_choices[palette_idx]) == 0:
-        palette_idx += 1
-    if palette_idx == n_palettes:  
-        return
-
-    colors = color_choices[palette_idx]
-    nb = len(colors)
-    if nb == 0:
-        return
-
-    done = False
-    color_width = 26
-    visible_count = (320 - 30) // color_width
-    first_visible = 0  
-
-    while not done:
-        colors = color_choices[palette_idx]
-        nb = len(colors)
-        if idx >= nb:
-            idx = nb-1 if nb > 0 else 0
-        if nb == 0:
-            kandinsky.fill_rect(0, 0, 320, 222, (200,200,200))
-            kandinsky.draw_string("Empty palette", 100, 100, (255,0,0), (200,200,200))
-            kandinsky.draw_string("Change with UP/DOWN", 60, 120, (0,0,0), (200,200,200))
-            time.sleep(0.15)
-        else:
-            bg_color = font_color if not is_bg else colors[idx]
-            kandinsky.fill_rect(0, 0, 320, 222, bg_color)
-            draw()
-            kandinsky.fill_rect(0,0,320,80,(200,200,200))  
-            titre = "Background" if is_bg else "Color"
-            kandinsky.draw_string(titre, 120, 10, (0,0,0), (200,200,200))
-    
-            kandinsky.draw_string("%d/%d" % (palette_idx+1, n_palettes), 280, 10, (0,0,0), (200,200,200)) 
-
-            if idx < first_visible:
-                first_visible = idx
-            elif idx > first_visible + visible_count - 1:
-                first_visible = idx - visible_count + 1
-            if nb > visible_count:
-                first_visible = min(first_visible, nb-visible_count)
-                first_visible = max(0, first_visible)
-            else:
-                first_visible = 0
-
-            for dispIndex in range(visible_count):
-                colorIndex = first_visible + dispIndex
-                if colorIndex >= nb:
-                    break
-                couleur = colors[colorIndex]
-                x = 30 + dispIndex*color_width
-                y = 40
-                kandinsky.fill_rect(x, y, 20, 20, couleur)
-                if idx == colorIndex:
-                    kandinsky.fill_rect(x-2, y-5, 24, 4, (255,0,0))
-
-            if nb > visible_count:
-                if first_visible > 0:
-                    kandinsky.draw_string("<", 8, 40, (100,100,100), (200,200,200))
-                if first_visible + visible_count < nb:
-                    kandinsky.draw_string(">", 320-18, 40, (100,100,100), (200,200,200))
-
-            if not is_bg:
-                if nb > 0:
-                    kandinsky.fill_rect(135, 150, 50, 50, colors[idx])
-
-        arrow_up_color = (60,60,200) if palette_idx > 0 else (180,180,180)
-        arrow_down_color = (60,60,200) if palette_idx < n_palettes-1 else (180,180,180)
-        kandinsky.draw_string("^", 8, 10, arrow_up_color, (200,200,200))
-        kandinsky.draw_string("v", 8, 25, arrow_down_color, (200,200,200))
+        for i, lbl in enumerate(labels):
+            active = (i == sel)
+            col    = MODE_COLORS[modes[i]]
+            bg     = col if active else (45, 45, 45)
+            fg     = (0, 0, 0) if active else (190, 190, 190)
+            kandinsky.fill_rect(10, menu_y[i] - 2, SCREEN_W - 20, 24, bg)
+            kandinsky.draw_string(lbl, 16, menu_y[i], fg, bg)
 
         while True:
-            if nb>0 and keydown(KEY_LEFT):
-                idx = (idx-1) % nb
-                if is_bg:
-                    font_color = colors[idx]
-                    clear_screen()
-                time.sleep(0.15)
-                break
-            if nb>0 and keydown(KEY_RIGHT):
-                idx = (idx+1) % nb
-                if is_bg:
-                    font_color = colors[idx]
-                    clear_screen()
-                time.sleep(0.15)
-                break
-            if n_palettes>1 and keydown(KEY_UP):
-                prev_palette = palette_idx
-                while True:
-                    palette_idx = (palette_idx-1) % n_palettes
-                    if len(color_choices[palette_idx]) > 0 or palette_idx == prev_palette:
-                        break
-                # try to keep idx on the same color index if possible
-                nb = len(color_choices[palette_idx])
-                if nb > 0:
-                    idx = min(idx, nb-1)
-                else:
-                    idx = 0
-                time.sleep(0.15)
-                break
-            if n_palettes>1 and keydown(KEY_DOWN):
-                prev_palette = palette_idx
-                while True:
-                    palette_idx = (palette_idx+1) % n_palettes
-                    if len(color_choices[palette_idx]) > 0 or palette_idx == prev_palette:
-                        break
-                nb = len(color_choices[palette_idx])
-                if nb > 0:
-                    idx = min(idx, nb-1)
-                else:
-                    idx = 0
-                time.sleep(0.15)
-                break
-            if nb>0 and keydown(KEY_OK):
-                if is_bg:
-                    font_color = colors[idx]
-                    clear_screen()
-                else:
-                    selected_color = colors[idx]
-                time.sleep(0.15)
-                done = True
-                break
+            if keydown(KEY_DOWN): sel = (sel+1) % n; time.sleep(TTC); break
+            if keydown(KEY_UP):   sel = (sel-1) % n; time.sleep(TTC); break
+            if keydown(KEY_OK):
+                SET("mode", modes[sel]); SET("line_start", None)
+                time.sleep(TTC); return
             if keydown(KEY_BACKSPACE):
-                time.sleep(0.15)
-                done = True
-                break
+                time.sleep(TTC); return
             time.sleep(0.05)
 
+def menu_color(is_bg=False):
+    n_pal     = len(color_choices)
+    pal       = 0
+    idx       = 0
+    cw        = 26
+    vis       = (SCREEN_W - 30) // cw
+    first_vis = 0
+    done      = False
 
-cursor()
+    while pal < n_pal and len(color_choices[pal]) == 0:
+        pal += 1
+    if pal == n_pal:
+        return
+
+    while not done:
+        colors = color_choices[pal]
+        nb     = len(colors)
+        idx    = min(idx, nb - 1) if nb > 0 else 0
+
+        kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, S("bg_color"))
+        draw_canvas()
+        kandinsky.fill_rect(0, 0, SCREEN_W, 78, (50, 50, 50))
+        title = "BACKGROUND" if is_bg else "COLOR"
+        kandinsky.draw_string(title, 100, 8, (255, 220, 0), (50, 50, 50))
+        kandinsky.draw_string("%d/%d" % (pal+1, n_pal), 272, 8, (160, 160, 160), (50, 50, 50))
+
+        if nb > 0:
+            if idx < first_vis: first_vis = idx
+            elif idx > first_vis + vis - 1: first_vis = idx - vis + 1
+            first_vis = max(0, min(first_vis, max(0, nb - vis)))
+
+            for d in range(vis):
+                ci = first_vis + d
+                if ci >= nb: break
+                x = 30 + d * cw
+                kandinsky.fill_rect(x, 42, 20, 20, colors[ci])
+                if ci == idx:
+                    kandinsky.fill_rect(x - 1, 40, 22, 2, (255, 80, 80))
+                    kandinsky.fill_rect(x - 1, 62, 22, 2, (255, 80, 80))
+
+            if not is_bg:
+                kandinsky.draw_string("Preview:", 108, 110, (180, 180, 180), S("bg_color"))
+                kandinsky.fill_rect(128, 126, 64, 64, colors[idx])
+
+        au = (100, 100, 255) if pal > 0         else (70, 70, 70)
+        ad = (100, 100, 255) if pal < n_pal - 1 else (70, 70, 70)
+        kandinsky.draw_string("^", 6,  8, au, (50, 50, 50))
+        kandinsky.draw_string("v", 6, 22, ad, (50, 50, 50))
+
+        while True:
+            if nb > 0 and keydown(KEY_LEFT):
+                idx = (idx - 1) % nb
+                if is_bg: SET("bg_color", colors[idx])
+                time.sleep(0.15); break
+            if nb > 0 and keydown(KEY_RIGHT):
+                idx = (idx + 1) % nb
+                if is_bg: SET("bg_color", colors[idx])
+                time.sleep(0.15); break
+            if n_pal > 1 and keydown(KEY_UP):
+                prev = pal
+                while True:
+                    pal = (pal - 1) % n_pal
+                    if len(color_choices[pal]) > 0 or pal == prev: break
+                nb = len(color_choices[pal])
+                idx = min(idx, nb-1) if nb > 0 else 0
+                time.sleep(0.15); break
+            if n_pal > 1 and keydown(KEY_DOWN):
+                prev = pal
+                while True:
+                    pal = (pal + 1) % n_pal
+                    if len(color_choices[pal]) > 0 or pal == prev: break
+                nb = len(color_choices[pal])
+                idx = min(idx, nb-1) if nb > 0 else 0
+                time.sleep(0.15); break
+            if nb > 0 and keydown(KEY_OK):
+                if is_bg: SET("bg_color", colors[idx])
+                else:     SET("draw_color", colors[idx])
+                time.sleep(0.15); done = True; break
+            if keydown(KEY_BACKSPACE):
+                time.sleep(0.15); done = True; break
+            time.sleep(0.05)
+
+# Main loop
+refresh()
 time.sleep(0.1)
 
-while start == 1:
-    # Draw
+while S("running"):
+
+    mode = S("mode")
+
+    # OK: action according to mode
     if keydown(KEY_OK):
-        points.append({"x":cursor_x,"y":cursor_y,"w":w,"h":h,"color":selected_color})
-        draw()
-        cursor()
-        time.sleep(ttc)
+        if   mode == "draw"   : action_draw()
+        elif mode == "erase"  : action_erase()
+        elif mode == "pipette": action_pipette()
+        elif mode == "line"   : action_line()
+        elif mode == "fill"   : action_fill()
+        refresh()
+        time.sleep(TTC)
+
+    # BACKSPACE: erase / cancel line
     if keydown(KEY_BACKSPACE):
-        if shift == False:
-            found = None
-            for p in points:
-                if p.get("x") == cursor_x and p.get("y") == cursor_y and p.get("w") == w and p.get("h") == h:
-                    found = p
-                    break
-            if found:
-                points.remove(found)
-                draw()
-                cursor()
-                time.sleep(ttc)
-        elif shift == True:
-            confirm = dialog(text="Do you clear ?")
-            time.sleep(ttc)
-            if confirm == 1:
-                clear()
-                cursor_x=0
-                cursor_y=0
-                cursor()
-            if confirm == 0:
-                clear_screen()    
-                cursor()
-            time.sleep(0.15)
+        if mode == "line" and S("line_start") is not None:
+            SET("line_start", None)
+        else:
+            action_erase()
+        refresh()
+        time.sleep(TTC)
 
-    # Cursor
-    if keydown(KEY_RIGHT):
-        if cursor_x+w <= 319:
-            cursor_x+=w
-            cursor()
-            time.sleep(ttc)
-    if keydown(KEY_LEFT):
-        if cursor_x-w >= -1:
-            cursor_x-=w
-            cursor()
-            time.sleep(ttc)
-    if keydown(KEY_UP):
-        if cursor_y-h >= -1:
-            cursor_y-=h
-            cursor()
-            time.sleep(ttc)
-    if keydown(KEY_DOWN):
-        if cursor_y+h <= 210:
-            cursor_y+=h
-            cursor()
-            time.sleep(ttc)
+    # Movement
+    if keydown(KEY_RIGHT): move_cursor( 1,  0); refresh(); time.sleep(TTC)
+    if keydown(KEY_LEFT):  move_cursor(-1,  0); refresh(); time.sleep(TTC)
+    if keydown(KEY_UP):    move_cursor( 0, -1); refresh(); time.sleep(TTC)
+    if keydown(KEY_DOWN):  move_cursor( 0,  1); refresh(); time.sleep(TTC)
 
-    # Option
-
+    # SHIFT: toggle draw <-> erase
     if keydown(KEY_SHIFT):
-        shift = not shift
-        time.sleep(ttc)
+        SET("mode", "erase" if mode == "draw" else "draw")
+        SET("line_start", None)
+        refresh()
+        time.sleep(TTC)
 
+    # 4 / 6: cycle mode
+    if keydown(KEY_FOUR): cycle_mode(-1); refresh(); time.sleep(TTC)
+    if keydown(KEY_SIX):  cycle_mode( 1); refresh(); time.sleep(TTC)
+
+    # TOOLBOX: main menu
     if keydown(KEY_TOOLBOX):
-        time.sleep(ttc)
-        opt = menu()
-        if opt == 0:
-            scale_menu()
-        elif opt == 1:
-            color_menu(is_bg=False)
-        elif opt == 2:
-            color_menu(is_bg=True)
+        time.sleep(TTC)
+        opt = menu_main()
+        if   opt == 0: menu_scale()
+        elif opt == 1: menu_color(is_bg=False)
+        elif opt == 2: menu_color(is_bg=True)
+        elif opt == 3: menu_mode()
+        elif opt == 4: menu_save_load()
+        elif opt == 5: action_clear()
+        refresh()
+        time.sleep(TTC)
 
-        cursor()
-        time.sleep(ttc)
-
+    # HOME: quit
     if keydown(KEY_HOME):
-        time.sleep(ttc)
-        confirm = dialog(text="Do you want quit?")
-        if confirm == 1:
-            clear_screen()
-            kandinsky.draw_string("See you late \nClick on RETURN \nfor exit", 10, 160, (0, 0, 0))
-            start = 0
-        if confirm == 0:
-            clear_screen()    
-            cursor()
-        time.sleep(0.15)
+        time.sleep(TTC)
+        if confirm_dialog("Quit?"):
+            SET("running", False)
+            kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, (30, 30, 30))
+            kandinsky.draw_string("Bye! Press BACK", 60, 100, (255, 220, 0), (30, 30, 30))
+        else:
+            refresh()
+        time.sleep(0.2)
+
+    time.sleep(0.02)
