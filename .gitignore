@@ -1,3 +1,5 @@
 app/paint/paint_config.py
 test/
 epsilon/
+.DS_Store
+shell_created_test.txt
