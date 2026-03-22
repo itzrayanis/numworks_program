@@ -131,8 +131,8 @@ def draw_cursor():
     ls = S("line_start")
     if ls is not None:
         lx, ly = ls
-        kandinsky.fill_rect(lx,            ly + ch//2, cw, 1, (255, 220, 0))
-        kandinsky.fill_rect(lx + cw//2,    ly,          1, ch, (255, 220, 0))
+        kandinsky.fill_rect(lx,         ly + ch//2, cw, 1, (255, 220, 0))
+        kandinsky.fill_rect(lx + cw//2, ly,          1, ch, (255, 220, 0))
 
 def refresh():
     draw_canvas()
@@ -211,13 +211,25 @@ def action_line():
             SET("line_start", None)
             return
 
+        # Build candidate points first
+        candidates = []
         for i in range(n + 1):
             px = x0 + round(steps_x * i / n) * cw
             py = y0 + round(steps_y * i / n) * ch
             if 0 <= px <= SCREEN_W - cw and 0 <= py <= CANVAS_H - ch - 1:
                 exists = any(p[0]==px and p[1]==py and p[2]==cw and p[3]==ch for p in points)
-                if not exists and len(points) < MAX_PTS:
-                    points.append((px, py, cw, ch, col))
+                if not exists:
+                    candidates.append((px, py, cw, ch, col))
+
+        remaining = MAX_PTS - len(points)
+        if len(candidates) > remaining:
+            info("Not enough points left! (%d needed, %d left)" % (len(candidates), remaining))
+            SET("line_start", None)
+            return
+
+        for pt in candidates:
+            if len(points) < MAX_PTS:
+                points.append(pt)
 
         SET("line_start", None)
 
@@ -252,7 +264,16 @@ def action_fill():
         if len(to_add) >= MAX_PTS:
             break
 
-    fill_set = set(to_add)
+    # Count truly new points (existing ones in fill_set are replaced, not added)
+    fill_set       = set(to_add)
+    existing_count = sum(1 for p in points if (p[0], p[1]) in fill_set and p[2] == cw and p[3] == ch)
+    new_pts_needed = len(to_add) - existing_count
+    remaining      = MAX_PTS - len(points)
+
+    if new_pts_needed > remaining:
+        info("Not enough points left! (%d needed, %d left)" % (new_pts_needed, remaining))
+        return
+
     points[:] = [p for p in points if (p[0], p[1]) not in fill_set or p[2] != cw or p[3] != ch]
     for x, y in to_add:
         if len(points) < MAX_PTS:
@@ -270,99 +291,6 @@ def move_cursor(dx, dy):
     SET("cursor_x", cx)
     SET("cursor_y", cy)
 
-# Save / Load
-SAVE_SLOTS = ["paint_save1", "paint_save2", "paint_save3"]
-
-def save_slot(slot):
-    """Write points and state to paint_saveN.py"""
-    filename = SAVE_SLOTS[slot] + ".py"
-    try:
-        f = open(filename, "w")
-        f.write("points = [\n")
-        for p in points:
-            f.write("    (%d,%d,%d,%d,(%d,%d,%d)),\n" % (
-                p[0], p[1], p[2], p[3], p[4][0], p[4][1], p[4][2]))
-        f.write("]\n")
-        f.write("bg_color    = (%d,%d,%d)\n" % S("bg_color"))
-        f.write("draw_color  = (%d,%d,%d)\n" % S("draw_color"))
-        f.write("w           = %d\n" % S("w"))
-        f.write("h           = %d\n" % S("h"))
-        f.close()
-        info("Saved! (%d pts)" % len(points))
-    except:
-        info("Save failed!")
-
-def load_slot(slot):
-    """Load points from paint_saveN.py"""
-    modname = SAVE_SLOTS[slot]
-    try:
-        # Reload module if already imported
-        import sys
-        if modname in sys.modules:
-            del sys.modules[modname]
-        save = __import__(modname)
-        points.clear()
-        for p in save.points:
-            points.append(p)
-        SET("bg_color",   save.bg_color)
-        SET("draw_color", save.draw_color)
-        SET("w",          save.w)
-        SET("h",          save.h)
-        info("Loaded! (%d pts)" % len(points))
-    except:
-        info("No save found!")
-
-def slot_exists(slot):
-    modname = SAVE_SLOTS[slot]
-    try:
-        import sys
-        if modname in sys.modules:
-            return True
-        __import__(modname)
-        return True
-    except:
-        return False
-
-def menu_save_load():
-    """Menu with 3 slots; each slot shows Save / Load"""
-    sel  = 0
-    mode = 0   # 0 = select slot, 1 = action on slot
-
-    while True:
-        kandinsky.fill_rect(0, 0, SCREEN_W, SCREEN_H, (30, 30, 30))
-        kandinsky.fill_rect(0, 0, SCREEN_W, 28, (50, 50, 50))
-        kandinsky.draw_string("SAVE / LOAD", 88, 8, (255, 220, 0), (50, 50, 50))
-
-        slot_y = [50, 100, 150]
-        for i in range(3):
-            active  = (i == sel)
-            bg      = (0, 120, 220) if active else (50, 50, 50)
-            exists  = slot_exists(i)
-            label   = "Slot %d  [OK]" % (i + 1) if exists else "Slot %d  [empty]" % (i + 1)
-            kandinsky.fill_rect(10, slot_y[i] - 4, SCREEN_W - 20, 36, bg)
-            kandinsky.draw_string(label, 16, slot_y[i], (255, 255, 255), bg)
-            if exists:
-                kandinsky.draw_string("SAVE", 160, slot_y[i] + 16, (100, 255, 100), bg)
-                kandinsky.draw_string("LOAD", 220, slot_y[i] + 16, (100, 200, 255), bg)
-            else:
-                kandinsky.draw_string("SAVE", 160, slot_y[i] + 16, (100, 255, 100), bg)
-
-        kandinsky.draw_string("OK=Save  Alpha=Load  Back=exit",
-                              10, 195, (120, 120, 120), (30, 30, 30))
-
-        while True:
-            if keydown(KEY_DOWN):
-                sel = (sel + 1) % 3; time.sleep(TTC); break
-            if keydown(KEY_UP):
-                sel = (sel - 1) % 3; time.sleep(TTC); break
-            if keydown(KEY_OK):
-                save_slot(sel); time.sleep(TTC); return
-            if keydown(KEY_ALPHA):
-                load_slot(sel); time.sleep(TTC); return
-            if keydown(KEY_BACKSPACE):
-                time.sleep(TTC); return
-            time.sleep(0.05)
-
 # Menus
 def menu_main():
     options = ["Scale", "Color", "Background", "Mode", "Clear"]
@@ -377,11 +305,9 @@ def menu_main():
 
         for i, opt in enumerate(options):
             active = (i == sel)
-            # Clear in red, Save/Load in green, others in blue
             if active:
-                if i == 5:   bg = (180, 50, 50)
-                elif i == 4: bg = (50, 130, 80)
-                else:        bg = (0, 120, 220)
+                if i == 4: bg = (180, 50, 50)
+                else:      bg = (0, 120, 220)
             else:
                 bg = (50, 50, 50)
             kandinsky.fill_rect(8, menu_y[i] - 4, 148, 26, bg)
@@ -593,8 +519,7 @@ while S("running"):
         elif opt == 1: menu_color(is_bg=False)
         elif opt == 2: menu_color(is_bg=True)
         elif opt == 3: menu_mode()
-        elif opt == 4: menu_save_load()
-        elif opt == 5: action_clear()
+        elif opt == 4: action_clear()
         refresh()
         time.sleep(TTC)
 
